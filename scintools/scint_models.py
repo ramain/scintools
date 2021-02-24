@@ -264,11 +264,12 @@ def fit_log_parabola(x, y):
 
 
 def arc_curvature(params, ydata, weights, true_anomaly,
-                  vearth_ra, vearth_dec):
+                  vearth_ra, vearth_dec, vfit=False, modelonly=False):
     """
     arc curvature model
 
-        ydata: arc curvature
+        ydata: arc curvature (vfit=False), or 
+               1 / sqrt(arc curvature) (when vfit=True)
     """
 
     # ensure dimensionality of arrays makes sense
@@ -283,8 +284,12 @@ def arc_curvature(params, ydata, weights, true_anomaly,
 
     # Other parameters in lower-case
     d = params['d']  # pulsar distance in kpc
+    try:
+        s = params['s']  # fractional screen distance
+    except:
+        d_s = params['d_s'] # screen distance in kpc
+        s = 1 - d_s / d
     d = d * kmpkpc  # kms
-    s = params['s']  # fractional screen distance
 
     veff_ra, veff_dec, vp_ra, vp_dec = \
         effective_velocity_annual(params, true_anomaly,
@@ -297,7 +302,7 @@ def arc_curvature(params, ydata, weights, true_anomaly,
         vism_ra = 0
         vism_dec = 0
 
-    if 'psi' in params.keys():  # anisotropic case
+    if 'vism_psi' in params.keys():  # anisotropic case
         psi = params['psi']*np.pi/180  # anisotropy angle
         vism_psi = params['vism_psi']  # vism in direction of anisotropy
         veff2 = (veff_ra*np.sin(psi) + veff_dec*np.cos(psi) - vism_psi)**2
@@ -311,6 +316,12 @@ def arc_curvature(params, ydata, weights, true_anomaly,
 
     if weights is None:
         weights = np.ones(np.shape(ydata))
+
+    if vfit:
+        model = 1e3 / np.sqrt(model)
+
+    if modelonly:
+        return model
 
     return (ydata - model) * weights
 
@@ -360,8 +371,12 @@ def effective_velocity_annual(params, true_anomaly, vearth_ra, vearth_dec):
         PMDEC = 0
 
     # other parameters in lower-case
-    s = params['s']  # fractional screen distance
     d = params['d']  # pulsar distance in kpc
+    try:
+        s = params['s']  # fractional screen distance
+    except:
+        d_s = params['d_s'] # screen distance in kpc
+        s = 1 - d_s / d
     d = d * kmpkpc  # distance in km
 
     pmra_v = PMRA * masrad * d / secperyr
