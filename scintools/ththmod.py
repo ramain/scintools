@@ -29,7 +29,7 @@ def chi_par(x, A, x0, C):
     return A*(x - x0)**2 + C
 
 
-def thth_map(SS, tau, fd, eta, edges):
+def thth_map(SS, tau, fd, eta, edges,hermetian=True):
     """Map from Secondary Spectrum to theta-theta space
 
     Arguments:
@@ -65,18 +65,18 @@ def thth_map(SS, tau, fd, eta, edges):
 
     # Preserve flux (int
     thth *= np.sqrt(np.abs(2*eta*(th2-th1)).value)
-
-    # Force Hermetian
-    thth -= np.tril(thth)
-    thth += np.conjugate(np.triu(thth).T)
-    thth -= np.diag(np.diag(thth))
-    thth -= np.diag(np.diag(thth[::-1, :]))[::-1, :]
-    thth = np.nan_to_num(thth)
+    if hermetian:
+        # Force Hermetian
+        thth -= np.tril(thth)
+        thth += np.conjugate(np.triu(thth).T)
+        thth -= np.diag(np.diag(thth))
+        thth -= np.diag(np.diag(thth[::-1, :]))[::-1, :]
+        thth = np.nan_to_num(thth)
 
     return thth
 
 
-def thth_redmap(SS, tau, fd, eta, edges):
+def thth_redmap(SS, tau, fd, eta, edges,hermetian=True):
     """
     Map from Secondary Spectrum to theta-theta space for the largest
     possible filled in sqaure within edges
@@ -90,7 +90,7 @@ def thth_redmap(SS, tau, fd, eta, edges):
     """
 
     # Find full thth
-    thth = thth_map(SS, tau, fd, eta, edges)
+    thth = thth_map(SS, tau, fd, eta, edges,hermetian)
 
     # Find region that is fully within SS
     th_cents = (edges[1:]+edges[:-1])/2
@@ -163,7 +163,7 @@ def modeler(SS, tau, fd, eta, edges,fd2=None,tau2=None):
         tau2=tau
     thth_red,edges_red=thth_redmap(SS, tau, fd, eta, edges)
     ##Find first eigenvector and value
-    w,V=eigsh(thth_red,1)
+    w,V=eigsh(thth_red,1,which='LA')
     w=w[0]
     V=V[:,0]
     ##Use larges eigenvector/value as model
@@ -185,7 +185,7 @@ def Eval_calc(SS, tau, fd, eta, edges):
     ##Find first eigenvector and value
     v0=thth_red[thth_red.shape[0]//2,:]
     v0/=np.sqrt((np.abs(v0)**2).sum())
-    w,V=eigsh(thth_red,1,v0=v0)
+    w,V=eigsh(thth_red,1,v0=v0,which='LA')
     return(np.abs(w[0]))
 
 def G_revmap(w,V,eta,edges,tau,fd):
@@ -208,6 +208,9 @@ def len_arc(x,eta):
     return((a*x*np.sqrt((a*x)**2 + 1) +np.arcsinh(a*x))/(2.*a))
 
 def arc_edges(eta,dfd,dtau,fd_max,n):
+    '''
+    
+    '''
     x_max=fd_max/dfd
     eta_ul=dfd**2*eta/dtau
     l_max=len_arc(x_max.value,eta_ul.value)
@@ -220,6 +223,13 @@ def arc_edges(eta,dfd,dtau,fd_max,n):
     return(edges) 
 
 def ext_find(x, y):
+    '''
+    Determine extent for imshow to center bins at given coordinates
+
+    x -- x coordinates of data
+    y -- y coordiantes of data
+
+    '''
     dx = np.diff(x).mean()
     dy = np.diff(y).mean()
     ext = [(x[0] - dx / 2).value, (x[-1] + dx / 2).value,
@@ -227,6 +237,14 @@ def ext_find(x, y):
     return (ext)
 
 def fft_axis(x, unit, pad=0):
+    '''
+    Calculates fourier space coordinates from data space coordinates.
+
+    Arguments
+    x -- Astropy 
+    unit -- desired unit for fourier coordinates
+    pad -- integer giving how many additional copies of the data are padded in this direction
+    '''
     fx = np.fft.fftshift(
         np.fft.fftfreq((pad+1) * x.shape[0], x[1] - x[0]).to_value(unit)) * unit
     return (fx)
@@ -248,10 +266,10 @@ def single_search(params):
         name -- A string filename used if plotting
         plot -- A bool controlling if the result should be plotted
     """
-    dspec2,freq2,time2,eta_low,eta_high,edges,name,plot=params
+    dspec2,freq2,time2,eta_low,eta_high,edges,name,plot,fw,npad=params
 
     etas = np.linspace(eta_low, eta_high, 100) * u.us / u.mHz**2
-    npad=3
+
 
     fd = fft_axis(time2, u.mHz, npad)
     tau = fft_axis(freq2, u.us, npad)
@@ -272,8 +290,10 @@ def single_search(params):
     try:
         etas=etas[np.isfinite(eigs)]
         eigs=eigs[np.isfinite(eigs)]
-        etas_fit = etas[np.abs(etas - etas[eigs == eigs.max()]) < .1 * etas[eigs == eigs.max()]]
-        eigs_fit = eigs[np.abs(etas - etas[eigs == eigs.max()]) < .1 * etas[eigs == eigs.max()]]
+
+        etas_fit = etas[np.abs(etas - etas[eigs == eigs.max()]) < fw * etas[eigs == eigs.max()]]
+        eigs_fit = eigs[np.abs(etas - etas[eigs == eigs.max()]) < fw * etas[eigs == eigs.max()]]
+
         C = eigs_fit.max()
         x0 = etas_fit[eigs_fit == C][0].value
         if x0 == etas_fit[0].value:
@@ -298,7 +318,7 @@ def single_search(params):
     except:
         print('Plotting Error',flush=True)
     print('Chunk completed (eta = %s +- %s at %s)' %(eta_fit,eta_sig,freq2.mean()),flush=True)
-    return(eta_fit,eta_sig,freq2.mean(),time2.mean())
+    return(eta_fit,eta_sig,freq2.mean(),time2.mean(),eigs)
 
 def PlotFunc(dspec,time,freq,SS,fd,tau,
             edges,eta_fit,eta_sig,etas,measure,etas_fit,fit_res,
@@ -372,23 +392,24 @@ def PlotFunc(dspec,time,freq,SS,fd,tau,
             origin='lower',
             aspect='auto',
             extent=ext_find(fd,tau),
-            vmin=np.abs(SS).max()**2/100,vmax=np.abs(SS).max()**2)
+            vmin=np.median(np.abs(SS)**2),vmax=np.abs(SS).max()**2)
     plt.xlim((-fd_lim,fd_lim))
     plt.ylim((0,tau_lim))
     plt.xlabel(r'$f_D$ (mHz)')
     plt.ylabel(r'$\tau$ (us)')
     plt.title('Data Secondary Spectrum')
+    plt.plot(fd,eta*(fd**2),'r',alpha=.7)
+    plt.xlabel(r'$f_D$ (mHz)')
+    plt.ylabel(r'$\tau$ (us)')
     plt.subplot(grid[1,1])
     plt.imshow(np.abs(recov)**2,
             norm=LogNorm(),
             origin='lower',
             aspect='auto',
             extent=ext_find(fd,tau),
-            vmin=np.abs(SS).max()**2/100,vmax=np.abs(SS).max()**2)
+            vmin=np.median(np.abs(SS)**2),vmax=np.abs(SS).max()**2)
     plt.xlim((-fd_lim,fd_lim))
     plt.ylim((0,tau_lim))
-    plt.xlabel(r'$f_D$ (mHz)')
-    plt.ylabel(r'$\tau$ (us)')
     plt.title('Model Secondary Spectrum')
     plt.subplot(grid[2,0])
     plt.imshow(np.abs(thth_red)**2,
@@ -396,7 +417,7 @@ def PlotFunc(dspec,time,freq,SS,fd,tau,
             origin='lower',
             aspect='auto',
             extent=[edges_red[0],edges_red[-1],edges_red[0],edges_red[-1]],
-            vmin=np.abs(thth_red).max()**2/100,vmax=np.abs(thth_red).max()**2)
+            vmin=np.median(np.abs(thth_red)**2),vmax=np.abs(thth_red).max()**2)
     plt.xlabel(r'$\theta_1$')
     plt.ylabel(r'$\theta_2$')
     plt.title(r'Data $\theta-\theta$')
@@ -406,7 +427,7 @@ def PlotFunc(dspec,time,freq,SS,fd,tau,
             origin='lower',
             aspect='auto',
             extent=[edges_red[0],edges_red[-1],edges_red[0],edges_red[-1]],
-            vmin=np.abs(thth_red).max()**2/100,vmax=np.abs(thth_red).max()**2)
+            vmin=np.median(np.abs(thth_red)**2),vmax=np.abs(thth_red).max()**2)
     plt.xlabel(r'$\theta_1$')
     plt.ylabel(r'$\theta_2$')
     plt.title(r'Data $\theta-\theta$')
@@ -455,10 +476,61 @@ def PlotFunc(dspec,time,freq,SS,fd,tau,
     plt.colorbar()
     plt.tight_layout()
 
-def single_chunk_retrieval(params):
-    dspec2,edges,time2,freq2,eta,idx_t,idx_f = params
+def VLBI_chunk_retrieval(params):
+    '''
+    Performs phase retrieval on a single time/frequency chunk using multiple dynamic spectra and visibilities.
+    Designed for use in parallel phase retreival code
+
+    Arguments
+    params -- tuple of relevant parameters
+    '''
+    dspec2_list,edges,time2,freq2,eta,idx_t,idx_f,npad,n_dish = params
     print("Starting Chunk %s-%s" %(idx_f,idx_t),flush=True)
-    npad = 3
+    fd = fft_axis(time2, u.mHz, npad)
+    tau = fft_axis(freq2, u.us, npad)
+
+    thth_red=list()
+    for i in range(len(dspec2_list)):
+        dspec_pad = np.pad(dspec2_list[i],
+                    ((0, npad * dspec2_list[i].shape[0]), (0, npad * dspec2_list[i].shape[1])),
+                    mode='constant',
+                    constant_values=dspec2_list[i].mean())
+
+        SS = np.fft.fftshift(np.fft.fft2(dspec_pad))
+        thth_single,edges_red=thth_redmap(SS,tau,fd,eta,edges)
+        thth_red.append(thth_single)
+    thth_size=thth_red[0].shape[0]
+    thth_comp=np.zeros((thth_size*n_dish,thth_size*n_dish),dtype=complex)
+    for d1 in range(n_dish):
+        for d2 in range(n_dish-d1):
+            idx=int(((n_dish*(n_dish+1))//2)-(((n_dish-d1)*(n_dish-d1+1))//2)+d2)
+            thth_comp[d1*thth_size:(d1+1)*thth_size,(d1+d2)*thth_size:(d1+d2+1)*thth_size]=thth_red[idx]
+            thth_comp[(d1+d2)*thth_size:(d1+d2+1)*thth_size,d1*thth_size:(d1+1)*thth_size]=np.conjugate(thth_red[idx].T)
+    w,V=eigsh(thth_comp,1,which='LA')
+    w=w[0]
+    V=V[:,0]
+    thth_temp=np.zeros((thth_size,thth_size),dtype=complex)
+    model_E=list()
+    for d in range(n_dish):
+        thth_temp*=0
+        thth_temp[thth_size//2,:]=np.conjugate(V[d*thth_size:(d+1)*thth_size])*np.sqrt(w)
+        recov_E=rev_map(thth_temp,tau,fd,eta,edges_red,isdspec = False)
+        model_E_temp=np.fft.ifft2(np.fft.ifftshift(recov_E))[:dspec2_list[0].shape[0],:dspec2_list[0].shape[1]]
+        model_E_temp*=(dspec2_list[0].shape[0]*dspec2_list[0].shape[1]/4)
+        model_E.append(model_E_temp)
+    print("Chunk %s-%s success" %(idx_f,idx_t),flush=True)
+    return(model_E,idx_f,idx_t)
+
+def single_chunk_retrieval(params):
+    '''
+    Performs phase retrieval on a single time/frequency chunk.
+    Designed for use in parallel phase retreival code
+
+    Arguments
+    params -- tuple of relevant parameters
+    '''
+    dspec2,edges,time2,freq2,eta,idx_t,idx_f,npad = params
+    print("Starting Chunk %s-%s" %(idx_f,idx_t),flush=True)
     fd = fft_axis(time2, u.mHz, npad)
     tau = fft_axis(freq2, u.us, npad)
 
@@ -484,3 +556,32 @@ def single_chunk_retrieval(params):
         print(e,flush=True)
         model_E=np.zeros(dspec2.shape,dtype=complex)
     return(model_E,idx_f,idx_t)
+
+def mask_func(w):
+    x=np.linspace(0,w-1,w)
+    return(np.sin((np.pi/2)*x/w)**2)
+
+def mosaic(chunks):
+    nct=chunks.shape[1]
+    ncf=chunks.shape[0]
+    cwf=chunks.shape[2]
+    cwt=chunks.shape[3]
+    E_recov=np.zeros(((ncf-1)*(cwf//2)+cwf,(nct-1)*(cwt//2)+cwt),dtype=complex)
+
+    for cf in range(ncf):
+        for ct in range(nct):
+            chunk_new=chunks[cf,ct,:,:]
+            chunk_old=E_recov[cf*cwf//2:cf*cwf//2+cwf,ct*cwt//2:ct*cwt//2+cwt]
+            mask=np.ones(chunk_new.shape)
+            if cf>0:
+                mask[:cwf//2,:]*=mask_func(cwf//2)[:,np.newaxis]
+            if cf<ncf-1:
+                mask[cwf//2:,:]*=1-mask_func(cwf//2)[:,np.newaxis]
+            if ct>0:
+                mask[:,:cwt//2]*=mask_func(cwt//2)
+            if ct<nct-1:
+                mask[:,cwt//2:]*=1-mask_func(cwt//2)
+            rot=np.angle((chunk_old*np.conjugate(chunk_new)*mask).mean())
+            E_recov[cf*cwf//2:cf*cwf//2+cwf,ct*cwt//2:ct*cwt//2+cwt]+=chunk_new*mask*np.exp(1j*rot)
+    return(E_recov)
+
