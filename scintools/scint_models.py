@@ -426,17 +426,12 @@ def arc_curvature(params, ydata, weights, true_anomaly,
 
     # Other parameters in lower-case
     d = params['d']  # pulsar distance in kpc
-<<<<<<< HEAD
     try:
         s = params['s']  # fractional screen distance
     except:
         d_s = params['d_s'] # screen distance in kpc
         s = 1 - d_s / d
-    d = d * kmpkpc  # kms
-=======
     dkm = d * kmpkpc  # kms
-    s = params['s']  # fractional screen distance
->>>>>>> ab029263a6c4f705adbeb659463a6fcb6e8ccfbe
 
     veff_ra, veff_dec, vp_ra, vp_dec = \
         effective_velocity_annual(params, true_anomaly,
